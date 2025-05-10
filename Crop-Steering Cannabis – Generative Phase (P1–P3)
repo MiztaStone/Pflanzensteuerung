@@ -1,0 +1,195 @@
+blueprint:
+  name: Crop-Steering Cannabis – Generative Phase (P1–P3)
+  description: >
+    Automatisches Bewässerungs-Scheduling für die generative Phase von
+    Cannabis: Erstbefüllung bis Runoff (P1), Erhaltungsbewässerung (P2)
+    und Ramp-Down mit anschließender Trockenphase (P3).
+  domain: automation
+  input:
+    soil_moisture_sensor:
+      name: Bodenfeuchtigkeitssensor
+      description: Misst die aktuelle Bodenfeuchte in %.
+      selector:
+        entity:
+          domain: sensor
+          device_class: humidity
+
+    irrigation_valve:
+      name: Bewässerungsventil
+      description: Schalter/Ventil für die Gießanlage.
+      selector:
+        entity:
+          domain: switch
+
+    notification_service:
+      name: Benachrichtigungsdienst
+      description: Service für Status-Nachrichten (z. B. telegram_bot.send_message).
+      default: telegram_bot.send_message
+      selector:
+        text: {}
+
+    # Lichtwechsel
+    generative_start_time:
+      name: Generative Phase ‑ Licht an
+      description: Uhrzeit, zu der die generative Bewässerung täglich startet.
+      default: '06:00:00'
+      selector:
+        time: {}
+
+    generative_end_time:
+      name: Generative Phase ‑ Licht aus
+      description: Uhrzeit, zu der die Lichtperiode endet (Start Ramp-Down).
+      default: '20:00:00'
+      selector:
+        time: {}
+
+    # Phase 1 – Erstbewässerung bis Runoff
+    p1_target_moisture:
+      name: P1 Zielfeuchte (%)
+      description: Feuchtewert, bei dem „Runoff“ erreicht ist.
+      default: 75
+      selector:
+        number:
+          min: 50
+          max: 90
+          unit_of_measurement: '%'
+          step: 1
+
+    p1_max_shots:
+      name: P1 Max. Shots
+      description: Max. Anzahl Kurz-Shots in P1.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          step: 1
+
+    p1_shot_duration:
+      name: P1 Shot-Dauer (Sek.)
+      description: Länge jedes Kurz-Shots.
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 120
+          unit_of_measurement: seconds
+          step: 5
+
+    p1_dryback_pct:
+      name: P1 Dry-Back (%)
+      description: Feuchte-Abfall, auf den nach jedem Shot gewartet wird.
+      default: 10
+      selector:
+        number:
+          min: 5
+          max: 30
+          unit_of_measurement: '%'
+          step: 1
+
+    # Phase 2 – Maintenance
+    p2_interval:
+      name: P2 Intervall (Min.)
+      description: Pause zwischen Maintenance-Shots.
+      default: 120
+      selector:
+        number:
+          min: 30
+          max: 480
+          unit_of_measurement: minutes
+          step: 10
+
+    p2_shot_duration:
+      name: P2 Shot-Dauer (Sek.)
+      description: Länge jedes Maintenance-Shots.
+      default: 20
+      selector:
+        number:
+          min: 5
+          max: 120
+          unit_of_measurement: seconds
+          step: 5
+
+mode: single
+
+trigger:
+  - platform: time
+    at: !input generative_start_time
+
+action:
+  - variables:
+      sensor: !input soil_moisture_sensor
+      valve: !input irrigation_valve
+      notify: !input notification_service
+
+  # Phase 1: Erstbewässerung bis Runoff
+  - service: '{{ notify }}'
+    data:
+      message: >
+        P1 gestartet: Runoff-Ziel {{ p1_target_moisture }} %
+        (aktuell {{ states(sensor)|float }} %).
+  - variables:
+      last_moisture: '{{ states(sensor)|float }}'
+      shots: 0
+  - repeat:
+      until:
+        - condition: or
+          conditions:
+            - condition: template
+              value_template: '{{ states(sensor)|float >= p1_target_moisture }}'
+            - condition: template
+              value_template: '{{ shots >= p1_max_shots }}'
+      sequence:
+        - service: switch.turn_on
+          target:
+            entity_id: '{{ valve }}'
+        - delay:
+            seconds: '{{ p1_shot_duration }}'
+        - service: switch.turn_off
+          target:
+            entity_id: '{{ valve }}'
+        - wait_template: >
+            {{ states(sensor)|float <= (last_moisture - p1_dryback_pct) }}
+          timeout: '00:30:00'
+        - variables:
+            last_moisture: '{{ states(sensor)|float }}'
+            shots: '{{ shots + 1 }}'
+  - service: '{{ notify }}'
+    data:
+      message: >
+        P1 abgeschlossen nach {{ shots }} Shots.
+        Feuchte jetzt {{ states(sensor)|float }} %.
+
+  # Phase 2: Maintenance bis Licht aus
+  - service: '{{ notify }}'
+    data:
+      message: >
+        P2 gestartet: Maintenance alle {{ p2_interval }} Min.
+  - repeat:
+      while:
+        - condition: time
+          before: !input generative_end_time
+      sequence:
+        - service: switch.turn_on
+          target:
+            entity_id: '{{ valve }}'
+        - delay:
+            seconds: !input p2_shot_duration
+        - service: switch.turn_off
+          target:
+            entity_id: '{{ valve }}'
+        - delay:
+            minutes: !input p2_interval
+  - service: '{{ notify }}'
+    data:
+      message: 'P2 abgeschlossen bis Licht aus.'
+
+  # Phase 3: Ramp-Down / Trockenphase
+  - service: switch.turn_off
+    target:
+      entity_id: '{{ valve }}'
+  - service: '{{ notify }}'
+    data:
+      message: >
+        P3 gestartet: Trockenphase bis zum nächsten Lichtwechsel um
+        {{ generative_start_time }}.
