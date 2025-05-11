@@ -11,7 +11,7 @@ blueprint:
       description: Misst die aktuelle Bodenfeuchte (%).
       selector:
         entity:
-          domain: sensor
+          domain: moisture
           device_class: humidity
 
     irrigation_valve:
@@ -19,7 +19,7 @@ blueprint:
       description: Schalter oder Ventil, das das Gießen ein-/ausschaltet.
       selector:
         entity:
-          domain: switch
+          domain: valve
 
     notification_service:
       name: Benachrichtigungsdienst
@@ -42,7 +42,7 @@ blueprint:
       default: 75
       selector:
         number:
-          min: 50
+          min: 20
           max: 90
           unit_of_measurement: '%'
           step: 1
@@ -64,7 +64,7 @@ blueprint:
       selector:
         number:
           min: 5
-          max: 120
+          max: 600
           unit_of_measurement: seconds
           step: 5
 
@@ -74,7 +74,7 @@ blueprint:
       default: 10
       selector:
         number:
-          min: 5
+          min: 1
           max: 30
           unit_of_measurement: '%'
           step: 1
@@ -100,7 +100,7 @@ blueprint:
       default: 120
       selector:
         number:
-          min: 30
+          min: 5
           max: 480
           unit_of_measurement: minutes
           step: 10
@@ -112,7 +112,7 @@ blueprint:
       selector:
         number:
           min: 5
-          max: 120
+          max: 600
           unit_of_measurement: seconds
           step: 5
 
@@ -134,10 +134,10 @@ blueprint:
     p3_interval:
       name: P3 Intervall (Min.)
       description: Pause zwischen den Ramp-Down-Shots in Minuten.
-      default: 180
+      default: 60
       selector:
         number:
-          min: 60
+          min: 5
           max: 600
           unit_of_measurement: minutes
           step: 30
